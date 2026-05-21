@@ -12,24 +12,28 @@
 #define in8 16
 
 // Controller Address - Change based on your controller
-static const char* controller_addr_string = "44:16:22:AF:11:EF"; 
+static const char* controller_addr_string = "EC:83:50:7F:CE:8C"; 
 // Address for my controller, replace with your own. You can get the address
-// by enabling the debugging in line 276 & checking serial coms at 115200 b
+// by enabling the debugging in line 286 & checking serial coms at 115200 b
 
 // Robot Variables
-float speed = 0;
 float direction = 0; 
-float rotation = 0;
+int speed = 0;
+int rotation = 0;
 
 // Controller Variables
-float LX = 0;
+float LX = 0;                   
 float LY = 0;
 float RightX = 0;
-float deadspace = 50;
+int Throttle = 0;
+int Brake = 0;
+float deadspace = 80;
 
 // Motor power variables
-int PWMThresh = 128;
-int LFPower = 0;
+int MaxPWM = 254;               // Maximum safe motor power PWM value
+int PWMThresh = 140;            // Free spinning stall PWM of motor
+int CruiseSpeed = 197;          // Base movement speed of robot as PWM value
+int LFPower = 0;                // Tracking variables for PWM at motor leads
 int RFPower = 0;
 int LRPower = 0;
 int RRPower = 0;
@@ -87,8 +91,8 @@ void dumpGamepad(ControllerPtr ctl) {
     ctl->axisY(),       // (-511 - 512) left Y axis
     ctl->axisRX(),      // (-511 - 512) right X axis
     ctl->axisRY(),      // (-511 - 512) right Y axis
-    ctl->brake(),       // (0 - 1023): brake button
-    ctl->throttle(),    // (0 - 1023): throttle (AKA gas) button
+    ctl->brake(),       // (0 - 1023): brake trigger
+    ctl->throttle(),    // (0 - 1023): throttle trigger
     ctl->miscButtons()  // bitmask of pressed "misc" buttons
   );
 }
@@ -97,69 +101,82 @@ void processGamepad(ControllerPtr ctl) {
   // Planning movement...
   LX = ctl->axisX();  // Measure state of gamepad
   LY = ctl->axisY();
-  RightX = ctl->axisRX();
+  RightX = ctl->axisRX();    
+  Throttle = int(ctl->throttle()); 
+  Brake = int(ctl->brake());
 
+  // Poll value 
+  speed = CruiseSpeed + int((MaxPWM - CruiseSpeed) * Throttle / (1023)) 
+    - int((CruiseSpeed - PWMThresh) * Brake / (1023));
+
+  if (abs(speed) > MaxPWM) {    // Scale speed to a safe value
+    speed = speed * MaxPWM / abs(speed); 
+  } 
+
+  if (abs(RightX) < 1.5 * deadspace) {
+    rotation = 0;
+  } else {
+    rotation = int(speed * RightX / abs(RightX));
+  }
+  
   if (abs(LX) < deadspace) {    // Enforce controller deadzones
     LX = 0;
-  }
+  } 
   if (abs(LY) < deadspace) {
     LY = 0;
   }
-  if (abs(RightX) < 2 * deadspace) {
-    RightX = 0;
-    rotation = 0;
-  } else {
-    rotation = (RightX / abs(RightX)) * 255;
+  if (LX == 0 && LY == 0) {
+    speed = 0;
   }
 
-  if (LX != 0 || LY != 0 || RightX != 0) {
-    speed = PWMThresh + (255 - PWMThresh) * ((sqrt(LX * LX + LY * LY) - deadspace)/ 590);  // Plan movement
+  if (abs(LX) > 1 || abs(LY) > 1 || abs(rotation) > 1) {    // Plan movement
     direction = atan2(-LY, LX);
 
-    // Sort direction into 8 bins and move in direction at full speed based on input
-    if((-PI/8 <= direction) && (direction < PI/8)) {              // Strafe right
-        LFPower = 255;
-        RFPower = -255;
-        LRPower = 255;
-        RRPower = 255;
-    } else if((-3*PI/8 <= direction) && (direction < -PI/8)) {    // Strafe back and right
-        LFPower = 255;
-        RFPower = 255;
-        LRPower = 255;
-        RRPower = 255;
-    } else if((-5*PI/8 <= direction) && (direction < -3*PI/8)) {  // Reverse
-        LFPower = 255;
-        RFPower = 255;
-        LRPower = 255;
-        RRPower = 255;
-    } else if ((-7*PI/8 <= direction) && (direction < -5*PI/8)) { // Strafe back and left
-        LFPower = 255;
-        RFPower = 255;
-        LRPower = 255;
-        RRPower = 255;
-    } else if ((direction < -7*PI/8) || (direction > 7*PI/8)) {   // Strafe left
-        LFPower = 255;
-        RFPower = 255;
-        LRPower = 255;
-        RRPower = 255;
-    } else if ((5*PI/8 <= direction) && (direction < 7*PI/8)) {   // Strafe left and forward
-        LFPower = 255;
-        RFPower = 255;
-        LRPower = 255;
-        RRPower = 255;
-    } else if ((3*PI/8 <= direction) && (direction < 5*PI/8)) {   // Forward
-        LFPower = 255;
-        RFPower = 255;
-        LRPower = 255;
-        RRPower = 255;
-    } else {                                                      // Forward and right
-        LFPower = 255;
-        RFPower = 255;
-        LRPower = 255;
-        RRPower = 255;
-    }
-
-  } else {
+    // Plan movement
+    // The variable direction is an angle in radians, with the direction  
+    // "Straight forward" located at pi/2 radians = 1.5708 rad
+    if (0.393 <= direction && direction < 1.178) {  // move forward and right
+      RFPower = 0 + rotation;
+      LFPower = -speed + rotation;
+      LRPower = 0 + rotation;
+      RRPower = speed + rotation;
+    } else if (1.178 <= direction && direction < 1.963) { // move forward
+      RFPower = -speed + rotation;
+      LFPower = speed + rotation;
+      LRPower = -speed + rotation;
+      RRPower = speed + rotation;
+    } else if (1.963 <= direction && direction < 2.749) { // move forward and left
+      RFPower = speed + rotation;
+      LFPower = 0 + rotation;
+      LRPower = -speed + rotation;
+      RRPower = 0 + rotation;
+    } else if (2.749 <= direction || direction < -2.749) { // move left
+      RFPower = speed + rotation;
+      LFPower = speed + rotation;
+      LRPower = -speed + rotation;
+      RRPower = -speed + rotation;
+    } else if (-2.749 <= direction && direction < -1.963) { //move backwards and left
+      RFPower = 0 + rotation;
+      LFPower = speed + rotation;
+      LRPower = 0 + rotation;
+      RRPower = -speed + rotation;
+    } else if (-1.963 <= direction && direction < -1.178) { // move backwards
+      RFPower = -speed + rotation;
+      LFPower = speed + rotation;
+      LRPower = speed + rotation;
+      RRPower = -speed + rotation;
+    } else if (-1.178 <= direction && direction < -0.393) { //move backwards and right}
+      RFPower = -speed + rotation;
+      LFPower = 0 + rotation;
+      LRPower = speed + rotation;
+      RRPower = 0 + rotation;
+    } else {                                                // move right
+      RFPower = -speed + rotation; 
+      LFPower = -speed + rotation;
+      LRPower = speed + rotation;
+      RRPower = speed + rotation;
+    } 
+  } else {    // stay still if no movement commands issued
     speed = 0;
     rotation = 0;
     direction= 0;
@@ -170,40 +187,40 @@ void processGamepad(ControllerPtr ctl) {
   }
   
   // Constrain all pwm values to acceptable values
-  if ((0 < LFPower && LFPower < PWMThresh) || (-PWMThresh < LFPower && LFPower < 0)) {
+  if (0 < abs(LFPower) && abs(LFPower) < PWMThresh) {
     LFPower = 0;
-  } else if (LFPower > 255) {
-    LFPower = 255;
-  } else if (LFPower < -254) {
-    LFPower = -254;
+  } else if (LFPower > MaxPWM) {
+    LFPower = MaxPWM;
+  } else if (LFPower < -MaxPWM) {
+    LFPower = -MaxPWM;
   }
 
-  if ((0 < RFPower && RFPower < PWMThresh) || (-PWMThresh < RFPower && RFPower < 0)) {
+  if (0 < abs(RFPower) && abs(RFPower) < PWMThresh) {
     RFPower = 0;
-  } else if (RFPower > 255) {
-    RFPower = 255;
-  } else if (RFPower < -254) {
-    RFPower = -254;
+  } else if (RFPower > MaxPWM) {
+    RFPower = MaxPWM;
+  } else if (RFPower < -MaxPWM) {
+    RFPower = -MaxPWM;
   }
 
-  if ((0 < LRPower && LRPower < PWMThresh) || (-PWMThresh < LRPower && LRPower < 0)) {
+  if (0 < abs(LRPower) && abs(LRPower) < PWMThresh) {
     LRPower = 0;
-  } else if (LRPower > 255) {
-    LRPower = 255;
-  } else if (LRPower < -254) {
-    LRPower = -254;
+  } else if (LRPower > MaxPWM) {
+    LRPower = MaxPWM;
+  } else if (LRPower < -MaxPWM) {
+    LRPower = -MaxPWM;
   }
 
-  if ((0 < RRPower && RRPower < PWMThresh) || (-PWMThresh < RRPower && RRPower < 0)) {
+  if (0 < abs(RRPower) && abs(RRPower) < PWMThresh) {
     RRPower = 0;
-  } else if (RRPower > 255) {
-    RRPower = 255;
-  } else if (RRPower < -254) {
-    RRPower = -254;
+  } else if (RRPower > MaxPWM) {
+    RRPower = MaxPWM;
+  } else if (RRPower < -MaxPWM) {
+    RRPower = -MaxPWM;
   }
 
   // Debugging statements below. Outputs robot variables and controller variables
-  Serial.printf("Dir: %4f\n", direction);
+  Serial.printf("Dir: %4f, Spd: %3i, Rot: %3i\n", direction, speed, rotation);
   // Serial.printf("Spd: %f, rot: %f, dir: %4f, LF: %3i, RF: %3i, LR: %3i, RR: %3i\n", speed, rotation, direction, LFPower, RFPower, LRPower, RRPower);
   // dumpGamepad(ctl);
 
@@ -278,7 +295,7 @@ void setup() {
   // If you are setting up your own controller, make sure to copy the address it lists for the controller
   // And paste the result into line 15, following the format 
 
-
+  
   // Only connect to the specified controller in controller_addr. Uncomment this section 
   Serial.println("Checking allowlist...");
   bd_addr_t controller_addr;
@@ -287,6 +304,7 @@ void setup() {
   Serial.printf("Added to allowlist: %s\n", controller_addr_string);
   uni_bt_allowlist_set_enabled(true);
   Serial.printf("Allowlist enabled: %d\n", uni_bt_allowlist_is_enabled());
+  
 
   // Setup the Bluepad32 callbacks
   BP32.setup(&onConnectedController, &onDisconnectedController);
