@@ -1,6 +1,7 @@
 #include <Bluepad32.h>
 #include <uni.h>
 
+
 // ESP32 GPIO Pinout
 #define in3 4  // Front left (Wheel 1)
 #define in4 0
@@ -14,7 +15,7 @@
 // Controller Address - Change based on your controller
 static const char* controller_addr_string = "EC:83:50:7F:CE:8C"; 
 // Address for my controller, replace with your own. You can get the address
-// by enabling the debugging in line 286 & checking serial coms at 115200 b
+// by checking serial coms at 115200 b with Arduino IDE Serial Monitor
 
 // Robot Variables
 float direction = 0; 
@@ -130,11 +131,14 @@ void processGamepad(ControllerPtr ctl) {
   }
 
   if (abs(LX) > 1 || abs(LY) > 1 || abs(rotation) > 1) {    // Plan movement
-    direction = atan2(-LY, LX);
+    direction = atan2(-LY, LX); // [rad] float 
 
     // Plan movement
     // The variable direction is an angle in radians, with the direction  
     // "Straight forward" located at pi/2 radians = 1.5708 rad
+
+    // This can be the most intense and annoying section to debug ever, but 
+    // It is often the source of trouble on 1st time setup FIXME
     if (0.393 <= direction && direction < 1.178) {  // move forward and right
       RFPower = 0 + rotation;
       LFPower = -speed + rotation;
@@ -168,7 +172,7 @@ void processGamepad(ControllerPtr ctl) {
     } else if (-1.178 <= direction && direction < -0.393) { //move backwards and right}
       RFPower = -speed + rotation;
       LFPower = 0 + rotation;
-      LRPower = speed + rotation;
+      LRPower = speed + rotation;                             
       RRPower = 0 + rotation;
     } else {                                                // move right
       RFPower = -speed + rotation; 
@@ -224,50 +228,7 @@ void processGamepad(ControllerPtr ctl) {
   // Serial.printf("Spd: %f, rot: %f, dir: %4f, LF: %3i, RF: %3i, LR: %3i, RR: %3i\n", speed, rotation, direction, LFPower, RFPower, LRPower, RRPower);
   // dumpGamepad(ctl);
 
-  // Execute planned movement...
-  if (RFPower > PWMThresh) {  // Front right
-    analogWrite(in1, abs(RFPower));
-    analogWrite(in2, 0);
-  } else if (RFPower < -PWMThresh) {
-    analogWrite(in1, 0);
-    analogWrite(in2, abs(RFPower));
-  } else {
-    analogWrite(in1, 0);
-    analogWrite(in2, 0);
-  }
-
-  if (LFPower > PWMThresh) {  // Front Left
-    analogWrite(in3, abs(LFPower));
-    analogWrite(in4, 0);
-  } else if (LFPower < -PWMThresh){
-    analogWrite(in3, 0);
-    analogWrite(in4, abs(LFPower));
-  } else {
-    analogWrite(in3, 0);
-    analogWrite(in4, 0);
-  }
-
-  if (LRPower > PWMThresh) {  // Rear left
-    analogWrite(in5, abs(LRPower));
-    analogWrite(in6, 0);
-  } else if (LRPower < -PWMThresh){
-    analogWrite(in5, 0);
-    analogWrite(in6, abs(LRPower));
-  } else {
-    analogWrite(in5, 0);
-    analogWrite(in6, 0);
-  }
-      
-  if (RRPower > PWMThresh) {  //Rear right
-    analogWrite(in7, abs(RRPower));
-    analogWrite(in8, 0);
-  } else if (RRPower < -PWMThresh){
-    analogWrite(in7, 0);
-    analogWrite(in8, abs(RRPower));
-  } else {
-    analogWrite(in7, 0);
-    analogWrite(in8, 0);
-  }
+ // time since last controller update - xx seconds
 }
 
 
@@ -289,14 +250,12 @@ void setup() {
   Serial.begin(115200);        // Begin serial communication for debugging. 
   Serial.printf("Firmware: %s\n", BP32.firmwareVersion());
 
-  // This line prints the address of the connected controller. Good for 1st time setup
+  // This line prints the address of the connected controller. 
   const uint8_t* addr = BP32.localBdAddress();
-  Serial.printf("BD Addr: %2X:%2X:%2X:%2X:%2X:%2X\n", addr[0], addr[1], addr[2], addr[3], addr[4], addr[5]);
-  // If you are setting up your own controller, make sure to copy the address it lists for the controller
-  // And paste the result into line 15, following the format 
+  Serial.printf("BD Addr: %2X:%2X:%2X:%2X:%2X:%2X\n", addr[0], addr[1], 
+    addr[2], addr[3], addr[4], addr[5]);
 
-  
-  // Only connect to the specified controller in controller_addr. Uncomment this section 
+  // Only connect to the specified controller in controller_addr. 
   Serial.println("Checking allowlist...");
   bd_addr_t controller_addr;
   sscanf_bd_addr(controller_addr_string, controller_addr);
@@ -305,7 +264,6 @@ void setup() {
   uni_bt_allowlist_set_enabled(true);
   Serial.printf("Allowlist enabled: %d\n", uni_bt_allowlist_is_enabled());
   
-
   // Setup the Bluepad32 callbacks
   BP32.setup(&onConnectedController, &onDisconnectedController);
   BP32.forgetBluetoothKeys();
@@ -324,9 +282,68 @@ void setup() {
 
 // Arduino loop function. Runs in CPU 1.
 void loop() {
-  bool dataUpdated = BP32.update();     // fetch controller data
-  if (dataUpdated) {
-    processControllers();    // Robot motion programmed here
+  // Perform safety checks here, validate crucial assumptions
+
+
+  // Accept Input from the user's connected gamepad
+  bool dataUpdated = BP32.update();     // fetch controller data FIXME
+  if (dataUpdated) {                    // Check for user input via gamepad
+    processControllers();               // Robot motion programmed here
+
+    // Execute planned movement...
+    if (RFPower > PWMThresh) {  // Front right
+      analogWrite(in1, abs(RFPower));
+      analogWrite(in2, 0);
+    } else if (RFPower < -PWMThresh) {
+      analogWrite(in1, 0);
+      analogWrite(in2, abs(RFPower));
+    } else {
+      analogWrite(in1, 0);
+      analogWrite(in2, 0);
+    }
+
+    if (LFPower > PWMThresh) {  // Front Left
+      analogWrite(in3, abs(LFPower));
+      analogWrite(in4, 0);
+    } else if (LFPower < -PWMThresh){
+      analogWrite(in3, 0);
+      analogWrite(in4, abs(LFPower));
+    } else {
+      analogWrite(in3, 0);
+      analogWrite(in4, 0);
+    }
+
+    if (LRPower > PWMThresh) {  // Rear left
+      analogWrite(in5, abs(LRPower));
+      analogWrite(in6, 0);
+    } else if (LRPower < -PWMThresh){
+      analogWrite(in5, 0);
+      analogWrite(in6, abs(LRPower));
+    } else {
+      analogWrite(in5, 0);
+      analogWrite(in6, 0);
+    }
+      
+    if (RRPower > PWMThresh) {  //Rear right
+      analogWrite(in7, abs(RRPower));
+      analogWrite(in8, 0);
+    } else if (RRPower < -PWMThresh){
+      analogWrite(in7, 0);
+      analogWrite(in8, abs(RRPower));
+    } else {
+      analogWrite(in7, 0);
+      analogWrite(in8, 0);
+    }
+
+
+  } else { // If controller isn't updated and connected, stop moving FIXME
+    speed = 0;
+    rotation = 0;
+    direction= 0;
+    LFPower = 0;
+    RRPower = 0;
+    LRPower = 0;
+    RFPower = 0;
   }
   
   // If your robot does other things you can put them here!
