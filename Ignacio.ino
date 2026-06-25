@@ -3,27 +3,28 @@
 
 
 // ESP32 GPIO Pinout
-#define in3 4  // Front left (Wheel 1)
-#define in4 0
-#define in1 2  // Front right (Wheel 2)
-#define in2 15
+#define in1 0  // Front left (Wheel 1)
+#define in2 4
+#define in3 15  // Front right (Wheel 2)
+#define in4 2
 #define in5 18  // Rear left (Wheel 3)
 #define in6 5
 #define in7 17  // Rear right (Wheel 4)
 #define in8 16
 
 // Controller Address - Change based on your controller
-static const char* controller_addr_string = "EC:83:50:7F:CE:8C"; 
+// static const char* controller_addr_string = "EC:83:50:7F:CE:8C"; // Maxx's XboxOne 1708
+static const char* controller_addr_string = "44:16:22:AF:11:EF";  // Maxx's XboxOne 1709
 // Address for my controller, replace with your own. You can get the address
 // by checking serial coms at 115200 b with Arduino IDE Serial Monitor
 
 // Robot Variables
-float direction = 0; 
+float direction = 0;
 int speed = 0;
 int rotation = 0;
 
 // Controller Variables
-float LX = 0;                   
+float LX = 0;
 float LY = 0;
 float RightX = 0;
 int Throttle = 0;
@@ -31,10 +32,10 @@ int Brake = 0;
 float deadspace = 80;
 
 // Motor power variables
-int MaxPWM = 254;               // Maximum safe motor power PWM value
-int PWMThresh = 140;            // Free spinning stall PWM of motor
-int CruiseSpeed = 197;          // Base movement speed of robot as PWM value
-int LFPower = 0;                // Tracking variables for PWM at motor leads
+int MaxPWM = 254;       // Maximum safe motor power PWM value
+int PWMThresh = 140;    // Free spinning stall PWM of motor
+int CruiseSpeed = 197;  // Base movement speed of robot as PWM value
+int LFPower = 0;        // Tracking variables for PWM at motor leads
 int RFPower = 0;
 int LRPower = 0;
 int RRPower = 0;
@@ -66,6 +67,23 @@ void onConnectedController(ControllerPtr ctl) {
 
 void onDisconnectedController(ControllerPtr ctl) {
   bool foundController = false;
+
+  speed = 0;  //
+  rotation = 0;
+  direction = 0;
+  LFPower = 0;
+  RRPower = 0;
+  LRPower = 0;
+  RFPower = 0;
+
+  analogWrite(in1, 0);  // Tuan all motors off too
+  analogWrite(in2, 0);
+  analogWrite(in3, 0);
+  analogWrite(in4, 0);
+  analogWrite(in5, 0);
+  analogWrite(in6, 0);
+  analogWrite(in7, 0);
+  analogWrite(in8, 0);
 
   for (int i = 0; i < BP32_MAX_GAMEPADS; i++) {
     if (myControllers[i] == ctl) {
@@ -102,27 +120,27 @@ void processGamepad(ControllerPtr ctl) {
   // Planning movement...
   LX = ctl->axisX();  // Measure state of gamepad
   LY = ctl->axisY();
-  RightX = ctl->axisRX();    
-  Throttle = int(ctl->throttle()); 
+  RightX = ctl->axisRX();
+  Throttle = int(ctl->throttle());
   Brake = int(ctl->brake());
 
-  // Poll value 
-  speed = CruiseSpeed + int((MaxPWM - CruiseSpeed) * Throttle / (1023)) 
-    - int((CruiseSpeed - PWMThresh) * Brake / (1023));
+  // Poll value
+  speed = CruiseSpeed + int((MaxPWM - CruiseSpeed) * Throttle / (1023))
+          - int((CruiseSpeed - PWMThresh) * Brake / (1023));
 
-  if (abs(speed) > MaxPWM) {    // Scale speed to a safe value
-    speed = speed * MaxPWM / abs(speed); 
-  } 
+  if (abs(speed) > MaxPWM) {  // Scale speed to a safe value
+    speed = speed * MaxPWM / abs(speed);
+  }
 
   if (abs(RightX) < 1.5 * deadspace) {
     rotation = 0;
   } else {
     rotation = int(speed * RightX / abs(RightX));
   }
-  
-  if (abs(LX) < deadspace) {    // Enforce controller deadzones
+
+  if (abs(LX) < deadspace) {  // Enforce controller deadzones
     LX = 0;
-  } 
+  }
   if (abs(LY) < deadspace) {
     LY = 0;
   }
@@ -130,66 +148,66 @@ void processGamepad(ControllerPtr ctl) {
     speed = 0;
   }
 
-  if (abs(LX) > 1 || abs(LY) > 1 || abs(rotation) > 1) {    // Plan movement
-    direction = atan2(-LY, LX); // [rad] float 
+  if (abs(LX) > 1 || abs(LY) > 1 || abs(rotation) > 1) {  // Plan movement
+    direction = atan2(-LY, LX);                           // [rad] float
 
     // Plan movement
-    // The variable direction is an angle in radians, with the direction  
+    // The variable direction is an angle in radians, with the direction
     // "Straight forward" located at pi/2 radians = 1.5708 rad
 
-    // This can be the most intense and annoying section to debug ever, but 
+    // This can be the most intense and annoying section to debug ever, but
     // It is often the source of trouble on 1st time setup FIXME
     if (0.393 <= direction && direction < 1.178) {  // move forward and right
       RFPower = 0 + rotation;
       LFPower = -speed + rotation;
       LRPower = 0 + rotation;
       RRPower = speed + rotation;
-    } else if (1.178 <= direction && direction < 1.963) { // move forward
+    } else if (1.178 <= direction && direction < 1.963) {  // move forward
       RFPower = -speed + rotation;
       LFPower = speed + rotation;
       LRPower = -speed + rotation;
       RRPower = speed + rotation;
-    } else if (1.963 <= direction && direction < 2.749) { // move forward and left
+    } else if (1.963 <= direction && direction < 2.749) {  // move forward and left
       RFPower = speed + rotation;
       LFPower = 0 + rotation;
       LRPower = -speed + rotation;
       RRPower = 0 + rotation;
-    } else if (2.749 <= direction || direction < -2.749) { // move left
+    } else if (2.749 <= direction || direction < -2.749) {  // move left
       RFPower = speed + rotation;
       LFPower = speed + rotation;
       LRPower = -speed + rotation;
       RRPower = -speed + rotation;
-    } else if (-2.749 <= direction && direction < -1.963) { //move backwards and left
+    } else if (-2.749 <= direction && direction < -1.963) {  //move backwards and left
       RFPower = 0 + rotation;
       LFPower = speed + rotation;
       LRPower = 0 + rotation;
       RRPower = -speed + rotation;
-    } else if (-1.963 <= direction && direction < -1.178) { // move backwards
+    } else if (-1.963 <= direction && direction < -1.178) {  // move backwards
       RFPower = -speed + rotation;
       LFPower = speed + rotation;
       LRPower = speed + rotation;
       RRPower = -speed + rotation;
-    } else if (-1.178 <= direction && direction < -0.393) { //move backwards and right}
+    } else if (-1.178 <= direction && direction < -0.393) {  //move backwards and right}
       RFPower = -speed + rotation;
       LFPower = 0 + rotation;
-      LRPower = speed + rotation;                             
+      LRPower = speed + rotation;
       RRPower = 0 + rotation;
-    } else {                                                // move right
-      RFPower = -speed + rotation; 
+    } else {  // move right
+      RFPower = -speed + rotation;
       LFPower = -speed + rotation;
       LRPower = speed + rotation;
       RRPower = speed + rotation;
-    } 
-  } else {    // stay still if no movement commands issued
+    }
+  } else {  // stay still if no movement commands issued
     speed = 0;
     rotation = 0;
-    direction= 0;
+    direction = 0;
     LFPower = 0;
     RRPower = 0;
     LRPower = 0;
     RFPower = 0;
   }
-  
+
   // Constrain all pwm values to acceptable values
   if (0 < abs(LFPower) && abs(LFPower) < PWMThresh) {
     LFPower = 0;
@@ -228,7 +246,7 @@ void processGamepad(ControllerPtr ctl) {
   // Serial.printf("Spd: %f, rot: %f, dir: %4f, LF: %3i, RF: %3i, LR: %3i, RR: %3i\n", speed, rotation, direction, LFPower, RFPower, LRPower, RRPower);
   // dumpGamepad(ctl);
 
- // time since last controller update - xx seconds
+  // time since last controller update - xx seconds
 }
 
 
@@ -245,17 +263,126 @@ void processControllers() {
 }
 
 
+void debugShuffle() {
+  // Good tool for understanding which motors are connected to which ports. 
+  // This is a critical part of the initial setup process for programmers. 
+  // This function is called in line 396 @ void setup()
+
+  Serial.println("Motors spinning in + direction");
+  // Spin all motors in the `positive` direction
+  analogWrite(in1, 0);
+  analogWrite(in2, 255);
+  analogWrite(in3, 0);
+  analogWrite(in4, 255);
+  analogWrite(in5, 0);
+  analogWrite(in6, 255);
+  analogWrite(in7, 0);
+  analogWrite(in8, 255);
+
+  delay(2000); // 2 seconds of powered motion
+  
+  Serial.println("Motors OFF");
+  // Turn every thing off 
+  analogWrite(in1, 0);
+  analogWrite(in2, 0);
+  analogWrite(in3, 0);
+  analogWrite(in4, 0);
+  analogWrite(in5, 0);
+  analogWrite(in6, 0);
+  analogWrite(in7, 0); 
+  analogWrite(in8, 0); 
+
+  delay(2000); // 2 seconds of no motion
+
+  Serial.println("Motors spinning in the - direction");
+  // Spin everything in the `negative` direction
+  analogWrite(in1, 255);
+  analogWrite(in2, 0);
+  analogWrite(in3, 255);
+  analogWrite(in4, 0);
+  analogWrite(in5, 255);
+  analogWrite(in6, 0);
+  analogWrite(in7, 255);
+  analogWrite(in8, 0);
+
+  delay(2000); // 2 seconds of powered motion
+
+  Serial.println("Motor 1 ONLY spinning in the + direction OFF");
+  // Turn everything but motor 1 off
+  analogWrite(in1, 0);
+  analogWrite(in2, 255);
+  analogWrite(in3, 0);
+  analogWrite(in4, 0);
+  analogWrite(in5, 0);
+  analogWrite(in6, 0);
+  analogWrite(in7, 0); 
+  analogWrite(in8, 0); 
+
+  delay(2000); // 2 seconds of powered motion
+
+  Serial.println("Motor 2 ONLY spinning in the + direction OFF");
+  // Turn everything but motor 1 off
+  analogWrite(in1, 0);
+  analogWrite(in2, 0);
+  analogWrite(in3, 0);
+  analogWrite(in4, 255);
+  analogWrite(in5, 0);
+  analogWrite(in6, 0);
+  analogWrite(in7, 0); 
+  analogWrite(in8, 0); 
+
+  delay(2000); // 2 seconds of power motion
+
+  Serial.println("Motor 3 ONLY spinning in the + direction OFF");
+  // Turn everything but motor 3 off
+  analogWrite(in1, 0);
+  analogWrite(in2, 0);
+  analogWrite(in3, 0);
+  analogWrite(in4, 0);
+  analogWrite(in5, 0);
+  analogWrite(in6, 255);
+  analogWrite(in7, 0); 
+  analogWrite(in8, 0); 
+
+  delay(2000); // 2 seconds of power motion
+
+  Serial.println("Motor 4 ONLY spinning in the + direction OFF");
+  // Turn everything but motor 4 off
+  analogWrite(in1, 0);
+  analogWrite(in2, 0);
+  analogWrite(in3, 0);
+  analogWrite(in4, 0);
+  analogWrite(in5, 0);
+  analogWrite(in6, 0);
+  analogWrite(in7, 0); 
+  analogWrite(in8, 255); 
+
+  delay(2000);  // 2 seconds of powered motion
+
+  // stop all powered motion
+  analogWrite(in1, 0);
+  analogWrite(in2, 0);
+  analogWrite(in3, 0);
+  analogWrite(in4, 0);
+  analogWrite(in5, 0);
+  analogWrite(in6, 0);
+  analogWrite(in7, 0);
+  analogWrite(in8, 0);
+
+  delay(150); // Brief 150 ms delay 
+}
+
 // Arduino setup function. Runs in CPU 1
 void setup() {
-  Serial.begin(115200);        // Begin serial communication for debugging. 
+  Serial.begin(115200);  // Begin serial communication for debugging.
   Serial.printf("Firmware: %s\n", BP32.firmwareVersion());
 
-  // This line prints the address of the connected controller. 
+  // This line prints the address of the connected controller.
   const uint8_t* addr = BP32.localBdAddress();
-  Serial.printf("BD Addr: %2X:%2X:%2X:%2X:%2X:%2X\n", addr[0], addr[1], 
-    addr[2], addr[3], addr[4], addr[5]);
+  Serial.printf("BD Addr: %2X:%2X:%2X:%2X:%2X:%2X\n", addr[0], addr[1],
+                addr[2], addr[3], addr[4], addr[5]);
 
-  // Only connect to the specified controller in controller_addr. 
+  // Only connect to the specified controller in controller_addr.
   Serial.println("Checking allowlist...");
   bd_addr_t controller_addr;
   sscanf_bd_addr(controller_addr_string, controller_addr);
@@ -263,7 +390,7 @@ void setup() {
   Serial.printf("Added to allowlist: %s\n", controller_addr_string);
   uni_bt_allowlist_set_enabled(true);
   Serial.printf("Allowlist enabled: %d\n", uni_bt_allowlist_is_enabled());
-  
+
   // Setup the Bluepad32 callbacks
   BP32.setup(&onConnectedController, &onDisconnectedController);
   BP32.forgetBluetoothKeys();
@@ -277,6 +404,8 @@ void setup() {
   pinMode(in6, OUTPUT);
   pinMode(in7, OUTPUT);
   pinMode(in8, OUTPUT);
+
+  debugShuffle();
 }
 
 
@@ -284,11 +413,11 @@ void setup() {
 void loop() {
   // Perform safety checks here, validate crucial assumptions
 
-
   // Accept Input from the user's connected gamepad
-  bool dataUpdated = BP32.update();     // fetch controller data FIXME
-  if (dataUpdated) {                    // Check for user input via gamepad
-    processControllers();               // Robot motion programmed here
+  bool dataUpdated = BP32.update();  // fetch controller data FIXME
+
+  if (dataUpdated) {                 // Check for user input via gamepad
+    processControllers();            // Robot motion programmed here
 
     // Execute planned movement...
     if (RFPower > PWMThresh) {  // Front right
@@ -305,7 +434,7 @@ void loop() {
     if (LFPower > PWMThresh) {  // Front Left
       analogWrite(in3, abs(LFPower));
       analogWrite(in4, 0);
-    } else if (LFPower < -PWMThresh){
+    } else if (LFPower < -PWMThresh) {
       analogWrite(in3, 0);
       analogWrite(in4, abs(LFPower));
     } else {
@@ -316,18 +445,18 @@ void loop() {
     if (LRPower > PWMThresh) {  // Rear left
       analogWrite(in5, abs(LRPower));
       analogWrite(in6, 0);
-    } else if (LRPower < -PWMThresh){
+    } else if (LRPower < -PWMThresh) {
       analogWrite(in5, 0);
       analogWrite(in6, abs(LRPower));
     } else {
       analogWrite(in5, 0);
       analogWrite(in6, 0);
     }
-      
+
     if (RRPower > PWMThresh) {  //Rear right
       analogWrite(in7, abs(RRPower));
       analogWrite(in8, 0);
-    } else if (RRPower < -PWMThresh){
+    } else if (RRPower < -PWMThresh) {
       analogWrite(in7, 0);
       analogWrite(in8, abs(RRPower));
     } else {
@@ -336,16 +465,26 @@ void loop() {
     }
 
 
-  } else { // If controller isn't updated and connected, stop moving FIXME
+  } /*else {  // If controller isn't updated and connected, stop moving FIXME
     speed = 0;
     rotation = 0;
-    direction= 0;
+    direction = 0;
     LFPower = 0;
     RRPower = 0;
     LRPower = 0;
     RFPower = 0;
-  }
-  
+
+    // Tuan all motors off too
+    analogWrite(in1, 0);
+    analogWrite(in2, 0);
+    analogWrite(in3, 0);
+    analogWrite(in4, 0);
+    analogWrite(in5, 0);
+    analogWrite(in6, 0);
+    analogWrite(in7, 0);
+    analogWrite(in8, 0);
+  }*/
+
   // If your robot does other things you can put them here!
 
   vTaskDelay(1);
