@@ -124,7 +124,7 @@ void processGamepad(ControllerPtr ctl) {
   Throttle = int(ctl->throttle());
   Brake = int(ctl->brake());
 
-  // Poll value
+  // Get speed from user by checking throttle & brake triggers
   speed = CruiseSpeed + int((MaxPWM - CruiseSpeed) * Throttle / (1023))
           - int((CruiseSpeed - PWMThresh) * Brake / (1023));
 
@@ -132,7 +132,7 @@ void processGamepad(ControllerPtr ctl) {
     speed = speed * MaxPWM / abs(speed);
   }
 
-  if (abs(RightX) < 1.5 * deadspace) {
+  if (abs(RightX) < 1.5 * deadspace) { 
     rotation = 0;
   } else {
     rotation = int(speed * RightX / abs(RightX));
@@ -266,7 +266,7 @@ void processControllers() {
 void debugShuffle() {
   // Good tool for understanding which motors are connected to which ports. 
   // This is a critical part of the initial setup process for programmers. 
-  // This function is called in line 396 @ void setup()
+  // This function is called in line 408 @ void setup()
 
   Serial.println("Motors spinning in + direction");
   // Spin all motors in the `positive` direction
